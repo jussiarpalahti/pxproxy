@@ -31,7 +31,6 @@ async def proxy(request):
     logger.info("------------------------------------------------------------")
     logger.info("{} | {} | {} |{} | {}".format(target_url, request.headers, request.method, data, get_data))
 
-
     async with aiohttp.ClientSession() as session:
 
         # check if the client is asking to upgrade the connection
@@ -56,7 +55,7 @@ async def proxy(request):
                             ws_c2p.send_str(data_p2s)
                     elif msg.type == aiohttp.WSMsgType.ERROR:
                         logger.info("------------------------------------------------------------")
-                        logger.info('ws connection closed with exception %s' % ws.exception())
+                        logger.info('ws connection closed with exception %s' % ws_c2p.exception())
                         logger.info("------------------------------------------------------------")
 
             logger.info("------------------------------------------------------------")
@@ -78,15 +77,40 @@ async def proxy(request):
     return web.Response(body=raw, status=res.status, headers=res.headers)
 
 
-if __name__ == "__main__":
+DOWNSTREAM = 'http://localhost:9000'
 
-    logging.root.setLevel(logging.INFO)
-    logging.root.addHandler(logging.StreamHandler(sys.stdout))
+async def index(request):
+    data = await request.read()
+    get_data = request.rel_url.query
+    async with aiohttp.ClientSession() as session:
+        async with session.request(
+                request.method,
+                DOWNSTREAM,
+                headers=request.headers, params=get_data, data=data
+        ) as resp:
+            res = resp
+            raw = await res.read()
+            return web.Response(body=raw, status=res.status, headers=res.headers)
 
+async def test(request):
+    return web.Response(text="Jei!")
+
+
+logging.root.setLevel(logging.INFO)
+logging.root.addHandler(logging.StreamHandler(sys.stdout))
+
+
+def start(loop):
     app = web.Application()
-    app.router.add_route('*', '/{path:.*?}', proxy)
+    app.router.add_route('*', '/proxy/{path:.*?}', proxy)
+    app.router.add_get('/que', test)
+    app.router.add_get('/', index)
+    return app
 
+
+if __name__ == '__main__':
     loop = asyncio.get_event_loop()
+    app = start(loop)
     f = loop.create_server(app.make_handler(), '0.0.0.0', 8080)
     srv = loop.run_until_complete(f)
     print('serving on', srv.sockets[0].getsockname())
